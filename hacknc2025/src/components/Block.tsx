@@ -19,7 +19,7 @@ const Block = React.memo(function Block({
 
   const classes =
     'h-8 w-8 rounded-sm border ' +
-    (isActive ? 'bg-slate-900 border-slate-900' : 'bg-white border-slate-300')
+    (isActive ? 'bg-red-500 border-slate-900' : 'bg-white border-slate-600')
 
   return (
     <button
