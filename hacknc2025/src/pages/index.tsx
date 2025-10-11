@@ -2,30 +2,56 @@ import { useCallback, useRef, useState } from "react";
 import Block from "@/components/Block";
 import Header from "@/components/Header";
 
-const TRACKS = 4;
-const STEPS = 16;
+const STEPS = 24; // 24 time steps
 
-// Available notes for dropdown
-const AVAILABLE_NOTES = [
-  "C2", "C#2", "D2", "D#2", "E2", "F2", "F#2", "G2", "G#2", "A2", "A#2", "B2",
-  "C3", "C#3", "D3", "D#3", "E3", "F3", "F#3", "G3", "G#3", "A3", "A#3", "B3",
-  "C4", "C#4", "D4", "D#4", "E4", "F4", "F#4", "G4", "G#4", "A4", "A#4", "B4",
-  "C5", "C#5", "D5", "D#5", "E5", "F5", "F#5", "G5", "G#5", "A5", "A#5", "B5",
+// Instrument configuration: each instrument has multiple pitch rows
+const INSTRUMENTS = [
+  { 
+    name: "Square", 
+    type: "square", 
+    pitchCount: 24, // 2 octaves
+    baseNote: "C3",
+    notes: [
+      "C3", "C#3", "D3", "D#3", "E3", "F3", "F#3", "G3", "G#3", "A3", "A#3", "B3",
+      "C4", "C#4", "D4", "D#4", "E4", "F4", "F#4", "G4", "G#4", "A4", "A#4", "B4"
+    ]
+  },
+  { 
+    name: "Triangle", 
+    type: "triangle", 
+    pitchCount: 24, // 2 octaves (bass)
+    baseNote: "C1",
+    notes: [
+      "C1", "C#1", "D1", "D#1", "E1", "F1", "F#1", "G1", "G#1", "A1", "A#1", "B1",
+      "C2", "C#2", "D2", "D#2", "E2", "F2", "F#2", "G2", "G#2", "A2", "A#2", "B2"
+    ]
+  },
+  { 
+    name: "Pulse", 
+    type: "pulse", 
+    pitchCount: 12, // 1 octave
+    baseNote: "C3",
+    notes: [
+      "C3", "C#3", "D3", "D#3", "E3", "F3", "F#3", "G3", "G#3", "A3", "A#3", "B3"
+    ]
+  },
 ];
 
 export default function Home() {
   const toneRef = useRef<any | null>(null);
-  const synthRef = useRef<any | null>(null);
+  const synthsRef = useRef<any[]>([]);
   
-  // Initialize 2D grid: [tracks][steps]
-  const [grid, setGrid] = useState<boolean[][]>(() =>
-    Array.from({ length: TRACKS }, () => Array(STEPS).fill(false))
+  // Initialize 3D grid: [instrumentIndex][pitchIndex][stepIndex]
+  // Each instrument has multiple pitch rows, each with STEPS time columns
+  const [grid, setGrid] = useState<boolean[][][]>(() =>
+    INSTRUMENTS.map(instrument => 
+      Array.from({ length: instrument.pitchCount }, () => 
+        Array(STEPS).fill(false)
+      )
+    )
   );
-  
-  // Track notes - each row has its own note
-  const [trackNotes, setTrackNotes] = useState<string[]>(["C3", "E3", "G3", "C4"]);
 
-  const playSound = useCallback(async (note: string) => {
+  const playSound = useCallback(async (note: string, waveform: string) => {
     // Load Tone dynamically (single entry for type safety)
     const mod = await import("tone");
     const ns: any = mod as any;
@@ -33,16 +59,10 @@ export default function Home() {
     const GlobalNS: any = (globalThis as any).Tone ?? undefined;
 
     // Prefer ESM named exports, then default namespace, then global UMD namespace
-    const ToneNS: any = (ns && (ns.start || ns.MembraneSynth || ns.Synth)) ? ns
-      : (DefaultNS && (DefaultNS.start || DefaultNS.MembraneSynth || DefaultNS.Synth)) ? DefaultNS
+    const ToneNS: any = (ns && (ns.start || ns.Synth)) ? ns
+      : (DefaultNS && (DefaultNS.start || DefaultNS.Synth)) ? DefaultNS
       : GlobalNS;
 
-    const MembraneCtorCandidates: any[] = [
-      ToneNS?.MembraneSynth,
-    ].filter(Boolean);
-    const SynthCtorCandidates: any[] = [
-      ToneNS?.Synth,
-    ].filter(Boolean);
     const start: any = ToneNS?.start;
     const context: any = ToneNS?.context;
 
@@ -52,33 +72,19 @@ export default function Home() {
       await context.resume();
     }
 
-    const tryConstruct = (candidates: any[]): any | null => {
-      for (const c of candidates) {
-        try {
-          if (typeof c === 'function') {
-            const inst = new c();
-            return inst;
-          }
-        } catch (_e) {
-          // keep trying
-        }
-      }
-      return null;
-    };
-
-    // Create a new synth instance each time to avoid timing conflicts
-    const mem = tryConstruct(MembraneCtorCandidates);
-    const basic = mem ? null : tryConstruct(SynthCtorCandidates);
-
+    // Create a synth with the specified waveform
     let tempSynth: any = null;
-    if (mem) {
-      tempSynth = mem.toDestination();
-    } else if (basic) {
-      tempSynth = basic.toDestination();
-    } else {
-      // Log available keys once to help diagnose
-      const keys = ToneNS ? Object.keys(ToneNS) : [];
-      console.warn('No constructable Tone synth found on Tone namespace. keys=', keys);
+    try {
+      if (ToneNS?.Synth) {
+        tempSynth = new ToneNS.Synth({
+          oscillator: { type: waveform }
+        }).toDestination();
+      } else {
+        console.warn('Tone.Synth not found');
+        return;
+      }
+    } catch (e) {
+      console.warn('Error creating synth:', e);
       return;
     }
 
@@ -99,59 +105,66 @@ export default function Home() {
     }
   }, []);
 
-  const handleNoteChange = useCallback((trackIndex: number, newNote: string) => {
-    setTrackNotes(prev => {
-      const updated = [...prev];
-      updated[trackIndex] = newNote;
-      return updated;
-    });
-  }, []);
-
-  const handleToggle = useCallback((trackIndex: number, stepIndex: number) => {
+  const handleToggle = useCallback((instrumentIndex: number, pitchIndex: number, stepIndex: number) => {
     setGrid((prevGrid) => {
-      const newGrid = prevGrid.map(row => [...row]);
-      const wasActive = newGrid[trackIndex][stepIndex];
-      newGrid[trackIndex][stepIndex] = !wasActive;
+      const newGrid = prevGrid.map(instrument => 
+        instrument.map(pitchRow => [...pitchRow])
+      );
+      const wasActive = newGrid[instrumentIndex][pitchIndex][stepIndex];
+      newGrid[instrumentIndex][pitchIndex][stepIndex] = !wasActive;
       
       // Only play sound when transitioning from inactive to active
       if (!wasActive) {
-        playSound(trackNotes[trackIndex]);
+        const note = INSTRUMENTS[instrumentIndex].notes[pitchIndex];
+        const waveform = INSTRUMENTS[instrumentIndex].type;
+        playSound(note, waveform);
       }
       
       return newGrid;
     });
-  }, [playSound, trackNotes]);
+  }, [playSound]);
 
   return (
     <div className="min-h-screen bg-slate-50">
       <Header />
       <div className="flex items-center justify-center p-8">
-        <div className="space-y-2">
-          {grid.map((track, trackIndex) => (
-            <div key={trackIndex} className="flex items-center gap-3">
-              {/* Note Selector */}
-              <select
-                value={trackNotes[trackIndex]}
-                onChange={(e) => handleNoteChange(trackIndex, e.target.value)}
-                className="px-3 py-1 text-sm font-medium border border-slate-300 rounded-md bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer"
-              >
-                {AVAILABLE_NOTES.map((note) => (
-                  <option key={note} value={note}>
-                    {note}
-                  </option>
-                ))}
-              </select>
+        <div className="space-y-4">
+          {INSTRUMENTS.map((instrument, instrumentIndex) => (
+            <div key={instrumentIndex} className="flex items-start gap-2">
+              {/* Instrument Label */}
+              <div className="w-20 px-2 py-1 text-xs font-bold text-slate-700 bg-slate-200 rounded text-center sticky left-0">
+                {instrument.name}
+              </div>
 
-              {/* Blocks for this track */}
-              <div className="flex gap-1">
-                {track.map((isActive, stepIndex) => (
-                  <Block
-                    key={`${trackIndex}-${stepIndex}`}
-                    trackIndex={trackIndex}
-                    stepIndex={stepIndex}
-                    isActive={isActive}
-                    onToggle={handleToggle}
-                  />
+              {/* Piano Roll Grid for this instrument */}
+              <div className="flex flex-col-reverse border-2 border-black overflow-hidden">
+                {/* Render pitch rows from high to low (reversed for natural piano layout) */}
+                {grid[instrumentIndex].map((pitchRow, pitchIndex) => (
+                  <div key={pitchIndex} className="flex">
+                    {/* Render time steps in groups of 4 */}
+                    {pitchRow.map((isActive, stepIndex) => {
+                      // Add left border for group starts, but not the first column
+                      const isGroupStart = stepIndex > 0 && stepIndex % 4 === 0;
+                      // Add horizontal divider for all rows except the bottom one (pitchIndex 0 = bottom after reverse)
+                      const needsHorizontalBorder = pitchIndex > 0;
+                      return (
+                        <button
+                          key={stepIndex}
+                          onClick={() => handleToggle(instrumentIndex, pitchIndex, stepIndex)}
+                          className={`w-6 h-3 transition-colors relative ${
+                            isGroupStart ? 'border-l-2 border-l-black' : ''
+                          } ${
+                            needsHorizontalBorder ? 'border-b border-b-slate-300' : ''
+                          } ${
+                            isActive 
+                              ? 'bg-blue-500 hover:bg-blue-600' 
+                              : 'bg-slate-200 hover:bg-slate-300'
+                          }`}
+                          aria-pressed={isActive}
+                        />
+                      );
+                    })}
+                  </div>
                 ))}
               </div>
             </div>
