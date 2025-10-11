@@ -325,7 +325,7 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-black">
       <Header />
       <div className="flex flex-col items-center justify-center p-8 gap-6">
         {/* Control Buttons */}
@@ -333,26 +333,26 @@ export default function Home() {
           <button
             onClick={handlePlay}
             disabled={isLoading}
-            className={`px-8 py-3 text-lg font-semibold rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+            className={`px-8 py-3 text-sm font-bold border-4 transition-all focus:outline-none ${
               isPlaying
-                ? 'bg-red-500 hover:bg-red-600 text-white focus:ring-red-400'
-                : 'bg-green-500 hover:bg-green-600 text-white focus:ring-green-400'
-            } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                ? 'bg-red-500 hover:bg-red-600 text-white border-red-700 shadow-[4px_4px_0px_0px_rgba(127,0,0,1)]'
+                : 'bg-green-400 hover:bg-green-500 text-black border-green-600 shadow-[4px_4px_0px_0px_rgba(0,100,0,1)]'
+            } ${isLoading ? 'opacity-50 cursor-not-allowed' : 'active:translate-x-1 active:translate-y-1 active:shadow-none'}`}
           >
-            {isLoading ? 'Loading...' : isPlaying ? '⏹ Stop' : '▶ Play'}
+            {isLoading ? 'LOADING...' : isPlaying ? 'STOP' : 'PLAY'}
           </button>
           
           <button
             onClick={handleClear}
             disabled={isLoading || isPlaying}
-            className="px-8 py-3 text-lg font-semibold rounded-lg bg-slate-600 hover:bg-slate-700 text-white transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-400 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-8 py-3 text-sm font-bold bg-purple-500 hover:bg-purple-600 text-white border-4 border-purple-700 shadow-[4px_4px_0px_0px_rgba(75,0,130,1)] transition-all focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed active:translate-x-1 active:translate-y-1 active:shadow-none"
           >
-            Clear
+            CLEAR
           </button>
 
           {/* BPM Control */}
-          <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-lg border-2 border-slate-300">
-            <label htmlFor="bpm" className="text-sm font-semibold text-slate-700">
+          <div className="flex items-center gap-2 px-4 py-2 bg-yellow-400 border-4 border-yellow-600 shadow-[4px_4px_0px_0px_rgba(139,69,0,1)]">
+            <label htmlFor="bpm" className="text-xs font-bold text-black">
               BPM:
             </label>
             <input
@@ -363,23 +363,23 @@ export default function Home() {
               onChange={(e) => handleBpmChange(e.target.value)}
               onBlur={handleBpmBlur}
               disabled={isPlaying}
-              className="w-16 px-2 py-1 text-center text-slate-900 font-semibold border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-16 px-2 py-1 text-center text-black font-bold bg-white border-2 border-black focus:outline-none focus:ring-2 focus:ring-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed"
               placeholder="60"
             />
           </div>
         </div>
 
-        <div className="w-full max-w-6xl overflow-x-auto overflow-y-visible border-2 border-slate-300 rounded-lg bg-white">
+        <div className="w-full max-w-6xl overflow-x-auto overflow-y-visible border-4 border-cyan-400 shadow-[8px_8px_0px_0px_rgba(0,139,139,1)] bg-gray-900">
           <div className="space-y-4 p-4 min-w-max">
             {INSTRUMENTS.map((instrument, instrumentIndex) => (
               <div key={instrumentIndex} className="flex items-start gap-2">
                 {/* Instrument Label - Sticky */}
-                <div className="w-20 px-2 py-1 text-xs font-bold text-slate-700 bg-slate-200 rounded text-center sticky left-4 z-30 shadow-md">
-                  {instrument.name}
+                <div className="w-20 px-2 py-1 text-[8px] font-bold text-black bg-cyan-400 border-2 border-cyan-600 text-center sticky left-4 z-30 shadow-md">
+                  {instrument.name.toUpperCase()}
                 </div>
 
                 {/* Note Labels (outside the grid) - Sticky */}
-                <div className="flex flex-col sticky left-24 z-30 bg-slate-50 shadow-sm overflow-hidden">
+                <div className="flex flex-col sticky left-24 z-30 bg-gray-900 shadow-sm overflow-hidden">
                   {/* Spacer for column numbers */}
                   <div className="h-4 mb-1"></div>
                   
@@ -392,8 +392,8 @@ export default function Home() {
                       const isSharp = noteName.includes('#');
                       
                       return (
-                        <div key={pitchIndex} className={`h-3 px-1 text-[9px] font-mono flex items-center justify-end w-8 ${
-                          isSharp ? 'text-slate-500' : 'text-slate-700'
+                        <div key={pitchIndex} className={`h-3 px-1 text-[6px] font-bold flex items-center justify-end w-8 ${
+                          isSharp ? 'text-cyan-300' : 'text-green-400'
                         }`}>
                           {noteName}
                         </div>
@@ -407,23 +407,21 @@ export default function Home() {
                   {/* Column Numbers */}
                   <div className="flex mb-1 h-4">
                     {Array.from({ length: STEPS }).map((_, stepIndex) => {
-                      const positionInGroup = (stepIndex % 4) + 1; // 1, 2, 3, 4, then repeat
                       const isGroupStart = stepIndex % 4 === 0;
+                      const groupNumber = Math.floor(stepIndex / 4) + 1; // 1, 2, 3, 4, 5...
                       return (
                         <div
                           key={stepIndex}
-                          className={`w-6 text-[8px] text-center font-mono text-slate-500 flex items-center justify-center ${
-                            isGroupStart ? 'font-bold text-slate-700' : ''
-                          }`}
+                          className="w-6 text-[8px] text-center font-bold text-yellow-400 flex items-center justify-center"
                         >
-                          {positionInGroup}
+                          {isGroupStart ? groupNumber : ''}
                         </div>
                       );
                     })}
                   </div>
 
                   {/* Piano Roll Grid for this instrument */}
-                  <div className="flex flex-col-reverse border-2 border-black overflow-hidden min-w-max">
+                  <div className="flex flex-col-reverse border-4 border-cyan-400 overflow-hidden min-w-max shadow-[4px_4px_0px_0px_rgba(0,139,139,1)]">
                 {/* Render pitch rows from high to low (reversed for natural piano layout) */}
                 {grid[instrumentIndex].map((pitchRow, pitchIndex) => {
                   // Check if this pitch is a sharp note
@@ -444,18 +442,18 @@ export default function Home() {
                         <button
                           key={stepIndex}
                           onClick={() => handleToggle(instrumentIndex, pitchIndex, stepIndex)}
-                          className={`w-6 h-3 transition-all relative hover:ring-2 hover:ring-blue-400 hover:ring-inset ${
-                            needsHorizontalBorder ? 'border-b border-b-slate-300' : ''
+                          className={`w-6 h-3 transition-all relative border hover:ring-2 hover:ring-cyan-400 hover:ring-inset ${
+                            needsHorizontalBorder ? 'border-b border-b-gray-700' : ''
                           } ${
-                            isGroupStart ? 'border-l-2 border-l-black z-10' : ''
+                            isGroupStart ? 'border-l-2 border-l-cyan-400 z-10' : 'border-l border-l-gray-700'
                           } ${
-                            isCurrentColumn ? 'ring-2 ring-yellow-400 ring-inset !z-20' : ''
+                            isCurrentColumn ? 'ring-2 ring-yellow-300 ring-inset !z-20 animate-pulse' : ''
                           } ${
                             isActive 
-                              ? 'bg-blue-500 hover:bg-blue-600' 
+                              ? 'bg-green-400 hover:bg-green-500 border-green-600' 
                               : isSharpRow 
-                                ? 'bg-slate-300 hover:bg-slate-400' 
-                                : 'bg-slate-200 hover:bg-slate-300'
+                                ? 'bg-gray-700 hover:bg-gray-600 border-gray-800' 
+                                : 'bg-gray-800 hover:bg-gray-700 border-gray-900'
                           }`}
                           aria-pressed={isActive}
                         />
