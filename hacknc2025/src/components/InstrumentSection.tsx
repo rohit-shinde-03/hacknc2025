@@ -20,14 +20,14 @@ export default function InstrumentSection({
   return (
     <div className="flex flex-col gap-2">
       {/* Instrument Label - Sticky at top */}
-      <div className="px-3 py-1 text-[10px] font-bold text-black bg-cyan-400 border-2 border-cyan-600 text-center sticky left-4 z-30 shadow-md w-fit">
+      <div className="px-3 py-1 ml-4 text-[10px] font-bold text-black bg-cyan-400 border-2 border-cyan-600 text-center sticky left-0 z-30 shadow-md w-fit">
         {instrumentName.toUpperCase()}
       </div>
 
       {/* Grid and labels container */}
       <div className="flex items-start gap-2">
         {/* Note Labels (outside the grid) - Sticky */}
-        <div className="flex flex-col sticky left-4 z-30 bg-gray-900 shadow-sm overflow-hidden pl-0">
+        <div className="flex flex-col sticky left-0 z-30 bg-gray-900 shadow-sm overflow-hidden pl-4 pr-2 pb-3">
           {/* Spacer for column numbers */}
           <div className="h-4 mb-1"></div>
           
@@ -40,7 +40,7 @@ export default function InstrumentSection({
               return (
                 <div 
                   key={pitchIndex} 
-                  className={`h-6 pr-1 text-[8px] font-bold flex items-center justify-end w-10 ${
+                  className={`h-6 text-[8px] font-bold flex items-center justify-end w-10 ${
                     isSharp ? 'text-cyan-300' : 'text-green-400'
                   }`}
                 >
