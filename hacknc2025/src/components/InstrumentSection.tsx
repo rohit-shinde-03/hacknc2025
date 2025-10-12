@@ -162,7 +162,8 @@ export default function InstrumentSection({
           {/* Note labels */}
           <div className="flex flex-col-reverse">
             {grid.map((_, pitchIndex) => {
-              const noteName = notes[pitchIndex];
+              const noteNameRaw = notes[pitchIndex];
+              const noteName = typeof noteNameRaw === 'string' ? noteNameRaw : '';
               const isSharp = noteName.includes('#');
               
               return (
@@ -200,7 +201,8 @@ export default function InstrumentSection({
           {/* Piano Roll Grid */}
           <div className="flex flex-col-reverse border-4 border-cyan-400 overflow-hidden min-w-max shadow-[4px_4px_0px_0px_rgba(0,139,139,1)] select-none">
             {grid.map((pitchRow, pitchIndex) => {
-              const noteName = notes[pitchIndex];
+              const noteNameRaw = notes[pitchIndex];
+              const noteName = typeof noteNameRaw === 'string' ? noteNameRaw : '';
               const isSharpRow = noteName.includes('#');
               
               return (
