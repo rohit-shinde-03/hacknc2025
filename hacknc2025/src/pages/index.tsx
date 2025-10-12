@@ -135,6 +135,7 @@ export default function Home() {
 
   // RAG prompt
   const [gemPrompt, setGemPrompt] = useState<string>("");
+  const [isComposing, setIsComposing] = useState<boolean>(false);
 
   // Hooks (audio + project)
   const {
@@ -361,8 +362,9 @@ export default function Home() {
 
     // --- RAG compose (uses your /api/gemini-compose-mdb) ---
     const composeWithRag = useCallback(async () => {
+      setIsComposing(true);
       try {
-        // 1) seed from what’s already on the grid
+        // 1) seed from what's already on the grid
         const seed = collectSeed(grid, durationGrid, steps, INSTRUMENTS);
         const startStep = seed.lastFilled >= 0 ? (seed.lastFilled + 1) % steps : 0;
 
@@ -417,6 +419,8 @@ export default function Home() {
       } catch (e) {
         console.error("composeWithRag error:", e);
         alert("RAG autocomplete failed. See console.");
+      } finally {
+        setIsComposing(false);
       }
     }, [gemPrompt, grid, durationGrid, steps]);
 
@@ -526,6 +530,59 @@ export default function Home() {
           onRemoveSegment={removeSegment}
         />
 
+        {/* AI Compose Section - Prominent MVP Feature */}
+        <div className="w-full max-w-4xl bg-gradient-to-r from-purple-900 to-pink-900 border-8 border-yellow-400 shadow-[8px_8px_0px_0px_rgba(255,215,0,1)] p-6 rounded-lg">
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="text-2xl">🤖</div>
+              <h2 className="text-2xl font-bold text-yellow-400 tracking-wider">AI MUSIC COMPOSER</h2>
+              {isComposing && (
+                <div className="flex items-center gap-2 ml-auto">
+                  <div className="animate-spin h-5 w-5 border-4 border-yellow-400 border-t-transparent rounded-full"></div>
+                  <span className="text-yellow-400 font-bold animate-pulse">AI GENERATING...</span>
+                </div>
+              )}
+            </div>
+            <p className="text-sm text-purple-200 mb-2">
+              Start a melody and AI will continue your creation, or compose from scratch with full automation!
+            </p>
+            <div className="flex gap-3 items-stretch">
+              <input
+                value={gemPrompt}
+                onChange={(e) => setGemPrompt(e.target.value)}
+                placeholder='Try: "upbeat overworld theme" or "spooky dungeon music"'
+                className="flex-1 px-4 py-3 rounded-lg border-4 border-purple-600 bg-white text-black text-lg font-medium placeholder:text-gray-400 focus:outline-none focus:ring-4 focus:ring-yellow-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isComposing || isPlaying || isLoading}
+              />
+              <button
+                onClick={composeWithRag}
+                disabled={isPlaying || isLoading || isComposing}
+                className="px-8 py-3 text-lg font-bold bg-yellow-400 hover:bg-yellow-500 text-black border-4 border-yellow-600 shadow-[4px_4px_0px_rgba(139,105,20,1)] disabled:opacity-50 disabled:cursor-not-allowed active:translate-x-1 active:translate-y-1 active:shadow-none transition-all rounded-lg whitespace-nowrap"
+                title="Use AI to compose music across all instruments"
+              >
+                {isComposing ? (
+                  <span className="flex items-center gap-2">
+                    <div className="animate-spin h-5 w-5 border-4 border-black border-t-transparent rounded-full"></div>
+                    COMPOSING...
+                  </span>
+                ) : (
+                  "✨ GENERATE MUSIC"
+                )}
+              </button>
+            </div>
+            {isComposing && (
+              <div className="mt-2 p-3 bg-purple-800 border-2 border-yellow-400 rounded">
+                <div className="flex items-center gap-2">
+                  <div className="animate-pulse text-yellow-400 font-bold">●</div>
+                  <p className="text-yellow-300 text-sm font-medium animate-pulse">
+                    AI is analyzing your prompt and generating a unique melody...
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Single grid window */}
         <SequencerGrid
           instruments={INSTRUMENTS}
@@ -540,24 +597,6 @@ export default function Home() {
           isPlaying={isPlaying}
         />
 
-        {/* RAG compose controls (single button) */}
-        <div className="flex gap-2 items-stretch w-full max-w-3xl">
-          <input
-            value={gemPrompt}
-            onChange={(e) => setGemPrompt(e.target.value)}
-            placeholder='e.g. "overworld theme, bright, 8-bit"'
-            className="flex-1 px-3 py-2 rounded border-2 border-slate-400 bg-white text-black"
-          />
-          <button
-            onClick={composeWithRag}
-            disabled={isPlaying || isLoading}
-            className="px-4 py-2 font-bold bg-rose-400 hover:bg-rose-500 text-black border-4 border-rose-700 shadow-[4px_4px_0px_rgba(120,0,40,1)] disabled:opacity-50"
-            title="Compose across Square, Triangle, Pulse from RAG"
-          >
-            Gemini: Compose (All Waves)
-          </button>
-
-        </div>
       </div>
 
       {/* Single SaveModal (no duplicates) */}
