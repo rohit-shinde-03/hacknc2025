@@ -76,7 +76,7 @@ export default function ControlPanel({
           -
         </button>
         <span className="text-xs font-bold text-white min-w-[60px] text-center">
-          {steps} STEPS
+          {steps} BEATS
         </span>
         <button
           onClick={onAddSegment}
