@@ -14,27 +14,29 @@ export default function Header() {
   }
 
   return (
-    <header className="w-full bg-white border-b border-slate-200 shadow-sm">
+    <header className="w-full bg-gray-900 border-b-4 border-cyan-400 shadow-[0_4px_0px_0px_rgba(0,139,139,1)]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           {/* Logo/Brand */}
           <div className="flex items-center">
-            <h1 className="text-2xl font-bold text-slate-900">BeatMaker</h1>
+            <h1 className="text-xl font-bold text-green-400" style={{ textShadow: '2px 2px 0px rgba(0,0,0,0.8)' }}>
+              8-BIT BEAT MAKER
+            </h1>
           </div>
 
           {/* Navigation buttons */}
           <div className="flex items-center gap-3">
             <button
               onClick={handleMyProjects}
-              className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
+              className="px-4 py-2 text-[10px] font-bold text-black bg-yellow-400 border-2 border-yellow-600 hover:bg-yellow-500 transition-all focus:outline-none shadow-[2px_2px_0px_0px_rgba(139,69,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
             >
-              My Projects
+              MY PROJECTS
             </button>
             <button
               onClick={handleSignOut}
-              className="px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2"
+              className="px-4 py-2 text-[10px] font-bold text-white bg-red-500 border-2 border-red-700 hover:bg-red-600 transition-all focus:outline-none shadow-[2px_2px_0px_0px_rgba(127,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
             >
-              Sign Out
+              SIGN OUT
             </button>
           </div>
         </div>
