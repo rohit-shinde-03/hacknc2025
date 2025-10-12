@@ -89,6 +89,8 @@ export function useProjectManager(grid: boolean[][][], durationGrid: number[][][
     confirmSave,
     cancelSave,
     setSaveModalName,
+    setCurrentProjectId,
+    setProjectName,
   };
 }
 

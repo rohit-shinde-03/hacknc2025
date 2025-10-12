@@ -1,4 +1,5 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useRouter } from "next/router";
 import Header from "@/components/Header";
 import ControlPanel from "@/components/ControlPanel";
 import SequencerGrid from "@/components/SequencerGrid";
@@ -6,6 +7,7 @@ import SaveModal from "@/components/SaveModal";
 import { useToneSequencer } from "@/hooks/useToneSequencer";
 import { useProjectManager } from "@/hooks/useProjectManager";
 import { exportToMidi } from "../../utils/midiExport";
+import { getProject } from "../../utils/projects";
 
 const MIN_STEPS = 16; // Minimum 4 groups of 4
 const MAX_STEPS = 128; // Maximum 32 groups of 4
@@ -45,7 +47,9 @@ const INSTRUMENTS = [
 ];
 
 export default function Home() {
+  const router = useRouter();
   const [steps, setSteps] = useState(64); // Start with 16 groups of 4
+  const [isLoadingProject, setIsLoadingProject] = useState(false);
 
   // Initialize 3D grid: [instrumentIndex][pitchIndex][stepIndex]
   const [grid, setGrid] = useState<boolean[][][]>(() =>
@@ -91,6 +95,8 @@ export default function Home() {
     confirmSave,
     cancelSave,
     setSaveModalName,
+    setCurrentProjectId,
+    setProjectName,
   } = useProjectManager(grid, durationGrid, bpm);
 
   const handleVolumeChange = useCallback((instrumentIndex: number, newVolume: number) => {
@@ -104,6 +110,71 @@ export default function Home() {
   const handleExportMidi = useCallback(() => {
     exportToMidi(INSTRUMENTS, grid, durationGrid, bpm, projectName || "Untitled_Project");
   }, [grid, durationGrid, bpm, projectName]);
+
+  // Load project from URL if projectId is provided
+  useEffect(() => {
+    const loadProject = async () => {
+      const { projectId } = router.query;
+      
+      if (!projectId || typeof projectId !== 'string') {
+        return;
+      }
+
+      try {
+        setIsLoadingProject(true);
+        console.log('Loading project with ID:', projectId);
+        
+        const project = await getProject(projectId);
+        
+        if (project) {
+          console.log('Project loaded:', project);
+          
+          // Set project metadata
+          setCurrentProjectId(project.id);
+          setProjectName(project.name);
+          
+          // Load grid data
+          if (project.grid_data && Array.isArray(project.grid_data)) {
+            const loadedSteps = project.grid_data[0]?.[0]?.length || 64;
+            setSteps(loadedSteps);
+            setGrid(project.grid_data);
+          }
+          
+          // Load duration data (with backward compatibility)
+          if (project.duration_data && Array.isArray(project.duration_data)) {
+            setDurationGrid(project.duration_data);
+          } else {
+            // Old project without duration data - default all to 1 step
+            console.log('No duration_data found, defaulting to 1-step notes');
+            setDurationGrid(
+              INSTRUMENTS.map((instrument, iIdx) =>
+                Array.from({ length: instrument.pitchCount }, (_, pIdx) =>
+                  Array(project.grid_data[iIdx]?.[pIdx]?.length || 64).fill(1)
+                )
+              )
+            );
+          }
+          
+          // Load BPM
+          if (project.bpm) {
+            setBpm(project.bpm);
+            setBpmInput(String(project.bpm));
+          }
+          
+          console.log('Project loaded successfully');
+        }
+      } catch (error) {
+        console.error('Error loading project:', error);
+        alert('Failed to load project. Please try again.');
+      } finally {
+        setIsLoadingProject(false);
+      }
+    };
+
+    if (router.isReady) {
+      loadProject();
+    }
+  }, [router.isReady, router.query, setCurrentProjectId, setProjectName]);
 
   const handleNoteCreate = useCallback((
     instrumentIndex: number, 
@@ -265,6 +336,19 @@ export default function Home() {
     );
   }, [steps]);
 
+  // Show loading screen while project is being loaded
+  if (isLoadingProject) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-2xl font-bold text-green-400 mb-4 animate-pulse">
+            LOADING PROJECT...
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-black">
       <Header 
@@ -276,6 +360,14 @@ export default function Home() {
       />
       
       <div className="flex flex-col items-center justify-center p-8 gap-6">
+        {/* Project Name Display */}
+        <div className="px-6 py-3 bg-gray-900 border-4 border-purple-500 shadow-[4px_4px_0px_0px_rgba(75,0,130,1)]">
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] font-bold text-purple-400">PROJECT:</span>
+            <span className="text-sm font-bold text-yellow-400">{projectName}</span>
+          </div>
+        </div>
+
         <ControlPanel
           isPlaying={isPlaying}
           isLoading={isLoading}
