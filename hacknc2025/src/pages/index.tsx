@@ -1,6 +1,9 @@
 import { useCallback, useRef, useState, useEffect } from "react";
+import { useRouter } from "next/router";
 import Block from "@/components/Block";
 import Header from "@/components/Header";
+import { createProject, updateProject, getProject } from "../../utils/projects";
+import type { Project } from "@/types/project";
 
 const STEPS = 64; // 64 time steps (16 groups of 4)
 
@@ -39,25 +42,34 @@ const INSTRUMENTS = [
 ];
 
 export default function Home() {
+  const router = useRouter();
   const toneRef = useRef<any | null>(null);
   const synthsRef = useRef<any[]>([]);
   const sequenceRef = useRef<any>(null);
-  
+
   // Initialize 3D grid: [instrumentIndex][pitchIndex][stepIndex]
   // Each instrument has multiple pitch rows, each with STEPS time columns
   const [grid, setGrid] = useState<boolean[][][]>(() =>
-    INSTRUMENTS.map(instrument => 
-      Array.from({ length: instrument.pitchCount }, () => 
+    INSTRUMENTS.map(instrument =>
+      Array.from({ length: instrument.pitchCount }, () =>
         Array(STEPS).fill(false)
       )
     )
   );
-  
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep, setCurrentStep] = useState<number>(-1);
   const [isLoading, setIsLoading] = useState(false);
   const [bpm, setBpm] = useState(120);
   const [bpmInput, setBpmInput] = useState("120");
+
+  // Project state
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [projectName, setProjectName] = useState<string>("Untitled Project");
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [saveModalName, setSaveModalName] = useState("");
+  const [isSaveAs, setIsSaveAs] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const playSound = useCallback(async (note: string, waveform: string) => {
       // Load Tone dynamically (single entry for type safety)
@@ -299,6 +311,94 @@ export default function Home() {
     }
   }, [bpmInput]);
 
+  // Save handlers
+  const handleSave = useCallback(async () => {
+    if (currentProjectId) {
+      // Update existing project
+      setIsSaving(true);
+      try {
+        await updateProject(currentProjectId, {
+          name: projectName,
+          grid_data: grid,
+          bpm,
+        });
+        alert("Project saved successfully!");
+      } catch (error) {
+        console.error("Error saving project:", error);
+        alert("Failed to save project. Please try again.");
+      } finally {
+        setIsSaving(false);
+      }
+    } else {
+      // No project loaded, show save dialog
+      setSaveModalName(projectName);
+      setIsSaveAs(false);
+      setShowSaveModal(true);
+    }
+  }, [currentProjectId, projectName, grid, bpm]);
+
+  const handleSaveAs = useCallback(() => {
+    setSaveModalName(projectName + " (Copy)");
+    setIsSaveAs(true);
+    setShowSaveModal(true);
+  }, [projectName]);
+
+  const handleSaveModalSubmit = useCallback(async () => {
+    if (!saveModalName.trim()) {
+      alert("Please enter a project name");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      if (isSaveAs || !currentProjectId) {
+        // Create new project
+        const newProject = await createProject({
+          name: saveModalName.trim(),
+          grid_data: grid,
+          bpm,
+        });
+        setCurrentProjectId(newProject.id);
+        setProjectName(newProject.name);
+        router.push(`/?projectId=${newProject.id}`, undefined, { shallow: true });
+        alert("Project created successfully!");
+      }
+      setShowSaveModal(false);
+      setSaveModalName("");
+    } catch (error) {
+      console.error("Error saving project:", error);
+      alert("Failed to save project. Please try again.");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [saveModalName, isSaveAs, currentProjectId, grid, bpm, router]);
+
+  // Load project from URL
+  useEffect(() => {
+    const loadProject = async () => {
+      const { projectId } = router.query;
+      if (projectId && typeof projectId === "string") {
+        try {
+          const project = await getProject(projectId);
+          if (project) {
+            setGrid(project.grid_data);
+            setBpm(project.bpm);
+            setBpmInput(String(project.bpm));
+            setProjectName(project.name);
+            setCurrentProjectId(project.id);
+          }
+        } catch (error) {
+          console.error("Error loading project:", error);
+          alert("Failed to load project");
+        }
+      }
+    };
+
+    if (router.isReady) {
+      loadProject();
+    }
+  }, [router.isReady, router.query]);
+
   // Sync bpmInput with bpm when bpm changes externally
   useEffect(() => {
     setBpmInput(String(bpm));
@@ -328,8 +428,14 @@ export default function Home() {
     <div className="min-h-screen bg-slate-50">
       <Header />
       <div className="flex flex-col items-center justify-center p-8 gap-6">
+        {/* Project Name Display */}
+        <div className="text-2xl font-bold text-slate-800">
+          {projectName}
+          {currentProjectId && <span className="ml-2 text-sm text-slate-500">(Saved)</span>}
+        </div>
+
         {/* Control Buttons */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-wrap justify-center">
           <button
             onClick={handlePlay}
             disabled={isLoading}
@@ -341,13 +447,29 @@ export default function Home() {
           >
             {isLoading ? 'Loading...' : isPlaying ? '⏹ Stop' : '▶ Play'}
           </button>
-          
+
           <button
             onClick={handleClear}
             disabled={isLoading || isPlaying}
             className="px-8 py-3 text-lg font-semibold rounded-lg bg-slate-600 hover:bg-slate-700 text-white transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-400 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Clear
+          </button>
+
+          <button
+            onClick={handleSave}
+            disabled={isSaving || isPlaying}
+            className="px-8 py-3 text-lg font-semibold rounded-lg bg-blue-500 hover:bg-blue-600 text-white transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSaving ? 'Saving...' : 'Save'}
+          </button>
+
+          <button
+            onClick={handleSaveAs}
+            disabled={isSaving || isPlaying}
+            className="px-6 py-3 text-lg font-semibold rounded-lg bg-purple-500 hover:bg-purple-600 text-white transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-400 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Save As
           </button>
 
           {/* BPM Control */}
@@ -470,6 +592,48 @@ export default function Home() {
           ))}
           </div>
         </div>
+
+        {/* Save Modal */}
+        {showSaveModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+              <h2 className="text-xl font-bold mb-4 text-slate-800">
+                {isSaveAs ? "Save As New Project" : "Save Project"}
+              </h2>
+              <input
+                type="text"
+                value={saveModalName}
+                onChange={(e) => setSaveModalName(e.target.value)}
+                placeholder="Enter project name"
+                className="w-full px-4 py-2 border-2 border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 mb-4"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleSaveModalSubmit();
+                  } else if (e.key === "Escape") {
+                    setShowSaveModal(false);
+                  }
+                }}
+              />
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setShowSaveModal(false)}
+                  disabled={isSaving}
+                  className="px-4 py-2 text-slate-700 bg-slate-200 rounded-lg hover:bg-slate-300 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveModalSubmit}
+                  disabled={isSaving}
+                  className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50"
+                >
+                  {isSaving ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
