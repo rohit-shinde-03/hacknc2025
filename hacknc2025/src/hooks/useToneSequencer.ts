@@ -11,8 +11,10 @@ interface Instrument {
 export function useToneSequencer(
   instruments: Instrument[],
   grid: boolean[][][],
+  durationGrid: number[][][],
   steps: number,
-  bpm: number
+  bpm: number,
+  volumes: number[]
 ) {
   const toneRef = useRef<any | null>(null);
   const synthsRef = useRef<any[]>([]);
@@ -47,6 +49,17 @@ export function useToneSequencer(
         tempSynth = new ToneNS.Synth({
           oscillator: { type: waveform }
         }).toDestination();
+        
+        // Convert volume (0-100) to decibels (-60 to 0)
+        // Find which instrument this is based on waveform
+        const instrumentIndex = instruments.findIndex(inst => inst.type === waveform);
+        if (instrumentIndex !== -1 && volumes && volumes[instrumentIndex] !== undefined) {
+          const volumePercent = volumes[instrumentIndex];
+          // Convert 0-100 to -60dB to 0dB (logarithmic scale)
+          const volumeDb = volumePercent === 0 ? -Infinity : (volumePercent / 100) * 60 - 60;
+          tempSynth.volume.value = volumeDb;
+        }
+        
         tempSynth.triggerAttackRelease(note, "32n");
 
         setTimeout(() => {
@@ -67,7 +80,7 @@ export function useToneSequencer(
         }
       }
     }
-  }, []);
+  }, [instruments, volumes]);
 
   const initializeSynths = useCallback(async () => {
     try {
@@ -88,11 +101,20 @@ export function useToneSequencer(
 
       toneRef.current = ToneNS;
 
-      const newSynths = instruments.map((instrument) =>
-        new ToneNS.PolySynth(ToneNS.Synth, {
+      const newSynths = instruments.map((instrument, index) => {
+        const synth = new ToneNS.PolySynth(ToneNS.Synth, {
           oscillator: { type: instrument.type },
-        }).toDestination()
-      );
+        }).toDestination();
+        
+        // Apply volume from volumes array (0-100 to -60dB to 0dB)
+        if (volumes && volumes[index] !== undefined) {
+          const volumePercent = volumes[index];
+          const volumeDb = volumePercent === 0 ? -Infinity : (volumePercent / 100) * 60 - 60;
+          synth.volume.value = volumeDb;
+        }
+        
+        return synth;
+      });
 
       synthsRef.current = newSynths;
       return true;
@@ -100,7 +122,7 @@ export function useToneSequencer(
       console.error("Error initializing synths:", error);
       return false;
     }
-  }, [instruments]);
+  }, [instruments, volumes]);
 
   const handlePlay = useCallback(async () => {
     if (isPlaying) {
@@ -157,7 +179,18 @@ export function useToneSequencer(
             for (let pitchIndex = 0; pitchIndex < instrument.pitchCount; pitchIndex++) {
               if (grid[instrumentIndex][pitchIndex][step]) {
                 const note = instruments[instrumentIndex].notes[pitchIndex];
-                synthsRef.current[instrumentIndex].triggerAttackRelease(note, "16n", time);
+                const duration = durationGrid[instrumentIndex][pitchIndex][step];
+                
+                // Clamp duration to not exceed the grid length (for notes near the end)
+                const maxDuration = steps - step;
+                const clampedDuration = Math.min(duration, maxDuration);
+                
+                // Calculate duration in seconds: each step is one 16th note
+                // Use Tone.Time to properly calculate duration regardless of BPM
+                const stepDuration = ToneNS.Time("16n").toSeconds();
+                const noteDuration = stepDuration * clampedDuration;
+                
+                synthsRef.current[instrumentIndex].triggerAttackRelease(note, noteDuration, time);
               }
             }
           });
@@ -179,7 +212,7 @@ export function useToneSequencer(
     } finally {
       setIsLoading(false);
     }
-  }, [isPlaying, initializeSynths, bpm, grid, instruments, steps]);
+  }, [isPlaying, initializeSynths, bpm, grid, durationGrid, instruments, steps]);
 
   const handleClear = useCallback(() => {
     if (window.confirm("Are you sure you want to clear the entire grid?")) {
@@ -187,6 +220,19 @@ export function useToneSequencer(
     }
     return false;
   }, []);
+
+  // Update synth volumes in real-time when volumes change
+  useEffect(() => {
+    if (synthsRef.current && synthsRef.current.length > 0 && volumes) {
+      synthsRef.current.forEach((synth, index) => {
+        if (synth && volumes[index] !== undefined) {
+          const volumePercent = volumes[index];
+          const volumeDb = volumePercent === 0 ? -Infinity : (volumePercent / 100) * 60 - 60;
+          synth.volume.value = volumeDb;
+        }
+      });
+    }
+  }, [volumes]);
 
   // Cleanup on unmount
   useEffect(() => {

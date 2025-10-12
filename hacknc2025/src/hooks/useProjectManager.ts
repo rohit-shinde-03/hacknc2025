@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { createProject, updateProject, getProject } from '../../utils/projects';
 
-export function useProjectManager(grid: boolean[][][], bpm: number) {
+export function useProjectManager(grid: boolean[][][], durationGrid: number[][][], bpm: number) {
   const router = useRouter();
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [projectName, setProjectName] = useState<string>("Untitled Project");
@@ -24,6 +24,7 @@ export function useProjectManager(grid: boolean[][][], bpm: number) {
       await updateProject(currentProjectId, {
         name: projectName,
         grid_data: grid,
+        duration_data: durationGrid,
         bpm,
         updated_at: new Date().toISOString(),
       });
@@ -34,7 +35,7 @@ export function useProjectManager(grid: boolean[][][], bpm: number) {
     } finally {
       setIsSaving(false);
     }
-  }, [currentProjectId, projectName, grid, bpm]);
+  }, [currentProjectId, projectName, grid, durationGrid, bpm]);
 
   const handleSaveAs = useCallback(() => {
     setSaveModalName(`${projectName} (Copy)`);
@@ -53,6 +54,7 @@ export function useProjectManager(grid: boolean[][][], bpm: number) {
       const newProject = await createProject({
         name: saveModalName,
         grid_data: grid,
+        duration_data: durationGrid,
         bpm,
       });
 
@@ -67,7 +69,7 @@ export function useProjectManager(grid: boolean[][][], bpm: number) {
     } finally {
       setIsSaving(false);
     }
-  }, [saveModalName, grid, bpm]);
+  }, [saveModalName, grid, durationGrid, bpm]);
 
   const cancelSave = useCallback(() => {
     setShowSaveModal(false);
