@@ -76,6 +76,36 @@ function nearestNoteInInstrument(targetMidi: number, notes: string[]) {
   }
   return { index: bestIdx, name: notes[bestIdx] };
 }
+// collect existing notes as absolute steps (0..steps-1)
+function collectSeed(
+  grid: boolean[][][],
+  durationGrid: number[][][],
+  steps: number,
+  instruments: typeof INSTRUMENTS
+) {
+  const events: Array<{ step: number; instrumentIdx: number; note: string; length: number }> = [];
+  let lastFilled = -1;
+
+  for (let i = 0; i < grid.length; i++) {
+    for (let p = 0; p < grid[i].length; p++) {
+      for (let s = 0; s < steps; s++) {
+        if (grid[i][p][s]) {
+          events.push({
+            step: s,
+            instrumentIdx: i,
+            note: instruments[i].notes[p],
+            length: Math.max(1, durationGrid[i][p][s] || 1),
+          });
+          lastFilled = Math.max(lastFilled, s);
+        }
+      }
+    }
+  }
+  return { events, lastFilled };
+}
+
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+const normMod = (n: number, m: number) => ((n % m) + m) % m;
 
 // --------------------
 // Page
@@ -276,6 +306,120 @@ export default function Home() {
     setGrid(prev => prev.map(inst => inst.map(row => row.slice(0, newSteps))));
     setDurationGrid(prev => prev.map(inst => inst.map(row => row.slice(0, newSteps))));
   }, [steps]);
+  const mod = (n: number, m: number) => ((n % m) + m) % m;
+
+  const toPitchIndex = useCallback((note: string, instrumentIdx: number) => {
+    const allowed = INSTRUMENTS[instrumentIdx].notes;
+    const midi = noteToMidiSafe(note);
+    return nearestNoteInInstrument(midi, allowed).index;
+  }, []);
+
+  const applyRagEvents = useCallback((
+    events: Array<{ relStep: number; instrumentIdx: number; note: string; length: number }>
+  ) => {
+    // Collapse to 1 event per (instrument, step). Prefer the longer sustain if there are collisions.
+    const byKey = new Map<string, { i: number; s: number; p: number; l: number }>();
+
+    for (const ev of events) {
+      const i = Math.max(0, Math.min(INSTRUMENTS.length - 1, ev.instrumentIdx | 0));
+      const s = mod(ev.relStep | 0, steps);
+      const p = toPitchIndex(ev.note, i);
+      const l = Math.max(1, Math.min(steps, Math.floor(ev.length || 1)));
+      const key = `${i}:${s}`;
+      const cur = byKey.get(key);
+      if (!cur || l > cur.l) byKey.set(key, { i, s, p, l });
+    }
+
+    // Write grid (clean column, place head, keep sustain row clean)
+    setGrid(prev => {
+      const next = prev.map(inst => inst.map(row => row.slice()));
+      for (const { i, s, p, l } of byKey.values()) {
+        // clear the entire column for this instrument at step s (monophonic at that moment)
+        for (let rp = 0; rp < next[i].length; rp++) next[i][rp][s] = false;
+
+        // place the head
+        next[i][p][s] = true;
+
+        // ensure sustain span doesn't leave extra heads later in the row
+        for (let k = 1; k < l; k++) {
+          const ss = mod(s + k, steps);
+          next[i][p][ss] = false;
+        }
+      }
+      return next;
+    });
+
+    // Write durations (head cell only)
+    setDurationGrid(prev => {
+      const next = prev.map(inst => inst.map(row => row.slice()));
+      for (const { i, s, p, l } of byKey.values()) {
+        next[i][p][s] = l;
+      }
+      return next;
+    });
+  }, [steps, toPitchIndex]);
+
+    // --- RAG compose (uses your /api/gemini-compose-mdb) ---
+    const composeWithRag = useCallback(async () => {
+      try {
+        // 1) seed from what’s already on the grid
+        const seed = collectSeed(grid, durationGrid, steps, INSTRUMENTS);
+        const startStep = seed.lastFilled >= 0 ? (seed.lastFilled + 1) % steps : 0;
+
+        const r = await fetch("/api/gemini-compose-mdb", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            prompt: gemPrompt || "Autocomplete the chiptune loop that’s already started.",
+            instruments: INSTRUMENTS.map((ins, idx) => ({ index: idx, name: ins.name, notes: ins.notes })),
+            steps,
+            startStep,                 // tell the model where to continue
+            seed: { events: seed.events }, // give existing content as context
+            maxEvents: 48,
+            stepQuant: 16,
+            maxPolyphony: 3
+          }),
+        });
+
+        const txt = await r.text();
+        if (!r.ok) throw new Error(`${r.status}: ${txt}`);
+
+        const data = JSON.parse(txt) as {
+          events: Array<{ relStep: number; instrumentIdx: number; note: string; length: number }>;
+        };
+        if (!Array.isArray(data.events)) throw new Error("No events in response");
+
+        // 2) apply returned events AFTER startStep and never overwrite existing notes
+        setGrid(prev => {
+          const g = prev.map(inst => inst.map(row => row.slice()));
+          setDurationGrid(prevDur => {
+            const d = prevDur.map(inst => inst.map(row => row.slice()));
+
+            for (const ev of data.events) {
+              const i = clamp(ev.instrumentIdx | 0, 0, INSTRUMENTS.length - 1);
+              const absStep = normMod(startStep + clamp(ev.relStep | 0, 0, steps - 1), steps);
+
+              // snap note to instrument’s nearest row
+              const { index: p } = nearestNoteInInstrument(noteToMidiSafe(ev.note), INSTRUMENTS[i].notes);
+
+              // don’t overwrite existing note heads
+              if (g[i][p][absStep]) continue;
+
+              g[i][p][absStep] = true;
+              d[i][p][absStep] = Math.max(1, (ev.length ?? 1) | 0);
+            }
+
+            setDurationGrid(d);
+            return d;
+          });
+          return g;
+        });
+      } catch (e) {
+        console.error("composeWithRag error:", e);
+        alert("RAG autocomplete failed. See console.");
+      }
+    }, [gemPrompt, grid, durationGrid, steps]);
+
 
   // --------------------
   // RAG compose: calls /api/gemini-compose-mdb and writes directly into grid
@@ -405,13 +549,14 @@ export default function Home() {
             className="flex-1 px-3 py-2 rounded border-2 border-slate-400 bg-white text-black"
           />
           <button
-            onClick={ragCompose}
+            onClick={composeWithRag}
             disabled={isPlaying || isLoading}
-            className="px-4 py-2 font-bold bg-rose-400 hover:bg-rose-500 text-black border-4 border-rose-700 shadow-[4px_4px_0_rgba(120,0,40,1)] disabled:opacity-50"
-            title="RAG: Compose across all instruments"
+            className="px-4 py-2 font-bold bg-rose-400 hover:bg-rose-500 text-black border-4 border-rose-700 shadow-[4px_4px_0px_rgba(120,0,40,1)] disabled:opacity-50"
+            title="Compose across Square, Triangle, Pulse from RAG"
           >
-            Compose (RAG)
+            Gemini: Compose (All Waves)
           </button>
+
         </div>
       </div>
 

@@ -1,129 +1,95 @@
+// export const runtime = "nodejs"; // if you need to force node
+
 import type { NextApiRequest, NextApiResponse } from "next";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-// Shape of the request your page sends
-type ReqBody = {
-  prompt: string;
-  instruments: Array<{ name: string; notes: string[] }>;
-  maxEvents?: number;
-  stepQuant?: number;
-  maxPolyphony?: number;
-};
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || "");
 
-// Shape of the response index.tsx expects
-type EventItem = {
-  relStep: number;          // relative step offset (>= 0)
-  instrumentIdx: number;    // which instrument
-  note: string;             // note name, e.g. "C4"
-  length?: number;          // optional step length
-};
-
-type ResBody = { events: EventItem[] };
-
-// If you already have a Python/RAG service you proxy to, swap this function
-// to do a `fetch(process.env.RAG_SERVER_URL!, { ... })` and return its JSON.
-async function composeWithRAGLLM(
-  prompt: string,
-  instruments: Array<{ name: string; notes: string[] }>,
-  maxEvents: number,
-  stepQuant: number,
-  maxPolyphony: number
-): Promise<EventItem[]> {
-  // Minimal LLM wiring (keep existing env var name)
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  if (!apiKey) throw new Error("Missing GEMINI_API_KEY/GOOGLE_API_KEY");
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
-  // Few-shot format: we ask for strict JSON with our fields
-  const sys =
-    "You are a chiptune arranger. Return ONLY JSON with an 'events' array. " +
-    "Each event has relStep (non-negative integer), instrumentIdx (int), note (string like C4), and optional length (steps). " +
-    `Limit to <= ${maxEvents} events, step quant ${stepQuant}, max polyphony ${maxPolyphony}. ` +
-    "Only use notes provided per instrument. Never exceed array bounds.";
-
-  const instrumentCatalog = instruments
-    .map((inst, idx) => {
-      const notesJoined = inst.notes.map((n: string, i: number) => `${i}:${n}`).join(", ");
-      return `#${idx} ${inst.name}: [${notesJoined}]`;
-    })
-    .join("\n");
-
-  const content = [
-    { role: "user", parts: [{ text: sys }] },
-    {
-      role: "user",
-      parts: [
-        {
-          text:
-            `PROMPT: ${prompt}\n\nINSTRUMENTS (index:name:notes[idx]):\n` +
-            instrumentCatalog +
-            `\n\nReturn strictly:\n{"events":[{"relStep":0,"instrumentIdx":0,"note":"C4","length":2}, ...]}\n`,
-        },
-      ],
-    },
-  ];
-
-  const resp = await model.generateContent({ contents: content as any });
-  const txt = resp.response.text().trim();
-
-  // Try parse strict JSON (strip backticks or fencing if present)
-  const jsonText = txt.replace(/^```json\s*|\s*```$/g, "");
-  let parsed: ResBody | null = null;
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    parsed = JSON.parse(jsonText);
-  } catch {
-    // As a last resort, try to find the first {...} block
-    const m = txt.match(/\{[\s\S]*\}/);
-    if (m) parsed = JSON.parse(m[0]);
-  }
-  if (!parsed || !Array.isArray(parsed.events)) {
-    throw new Error("LLM did not return valid events JSON");
-  }
+    if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  // Coerce types & clamp
-  const events: EventItem[] = parsed.events.map((e) => ({
-    relStep: Math.max(0, Number.isFinite(e.relStep as number) ? (e.relStep as number) : 0),
-    instrumentIdx: Math.max(0, Number.isFinite(e.instrumentIdx as number) ? (e.instrumentIdx as number) : 0),
-    note: String(e.note || "C4"),
-    length: Number.isFinite(e.length as number) ? (e.length as number) : undefined,
-  }));
-  return events.slice(0, maxEvents);
-}
-
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse<ResBody | { error: string }>
-) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
-    return res.status(405).json({ error: "Method Not Allowed" });
-  }
-
-  try {
     const {
       prompt,
       instruments,
-      maxEvents = 24,
+      steps = 64,
+      startStep = 0,
+      seed = { events: [] as Array<{ step: number; instrumentIdx: number; note: string; length: number }> },
+      maxEvents = 48,
       stepQuant = 16,
       maxPolyphony = 3,
-    } = (req.body || {}) as ReqBody;
+    } = req.body || {};
 
     if (!prompt || !Array.isArray(instruments)) {
       return res.status(400).json({ error: "Bad request: prompt + instruments required" });
     }
 
-    const events = await composeWithRAGLLM(
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    const rules = `
+You are continuing a chiptune (8-bit) loop on a 0..${steps - 1} step grid (quarters subdivided into ${stepQuant}/step).
+Input includes EXISTING note events as absolute steps and a startStep where continuation should begin.
+CONSTRAINTS:
+- Do NOT modify or re-output existing notes. Only output NEW notes that start at or after startStep.
+- Return events with "relStep" measured from startStep (relStep >= 0).
+- Use all three instruments when musically appropriate: Square=lead/melody, Triangle=bass, Pulse=arp/chords/counter.
+- Keep polyphony per step ≤ ${maxPolyphony}; avoid long unisons across instruments.
+- Vary rhythm (don’t place everything on the same row/step); use chord tones relative to existing material.
+OUTPUT: Only JSON of the form:
+{ "events": [ { "relStep": number, "instrumentIdx": number, "note": string, "length": number }, ... ] }
+`;
+
+    const input = {
       prompt,
       instruments,
+      steps,
+      startStep,
+      seed, // existing content
       maxEvents,
       stepQuant,
-      maxPolyphony
-    );
-    return res.status(200).json({ events });
+      maxPolyphony,
+    };
+
+    const resp = await model.generateContent({
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: rules },
+            { text: `Prompt: ${prompt}` },
+            { text: `Instruments: ${JSON.stringify(instruments)}` },
+            { text: `steps=${steps}, startStep=${startStep}, stepQuant=${stepQuant}` },
+            { text: `Existing events (absolute steps): ${JSON.stringify(seed.events || [])}` },
+            { text: `Return at most ${maxEvents} new events.` },
+          ],
+        },
+      ],
+    });
+
+    const text = resp.response.text() || "";
+
+    // Try to extract a JSON block
+    const match = text.match(/```json\s*([\s\S]*?)\s*```/i) || text.match(/\{[\s\S]*\}/);
+    const parsed = match ? JSON.parse(match[1] || match[0]) : JSON.parse(text);
+
+    // sanitize
+    const events: Array<{ relStep: number; instrumentIdx: number; note: string; length: number }> =
+      Array.isArray(parsed?.events) ? parsed.events : [];
+
+    const q = Math.max(1, stepQuant | 0);
+    const cleaned = events.slice(0, maxEvents).map((e) => ({
+      relStep: Math.max(0, Math.round((e.relStep ?? 0) / 1) ), // keep integer
+      instrumentIdx: Math.max(0, Math.min(instruments.length - 1, e.instrumentIdx | 0)),
+      note: String(e.note || "C4"),
+      length: Math.max(1, e.length | 0),
+    }));
+
+    return res.status(200).json({ events: cleaned });
   } catch (err: any) {
-    console.error("gemini-compose-mdb error:", err?.stack || err);
-    return res.status(500).json({ error: "Server error" });
+    console.error(err);
+    return res.status(500).json({
+      error: "Server error",
+      detail: String(err?.message || err),
+    });
   }
 }
