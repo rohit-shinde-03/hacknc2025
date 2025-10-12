@@ -35,7 +35,8 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
-      if (!session?.user) {
+      // Only redirect to login if not already on the login page
+      if (!session?.user && router.pathname !== '/login') {
         router.push('/login')
       }
     })
