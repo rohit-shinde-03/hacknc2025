@@ -1,107 +1,129 @@
-// src/pages/api/gemini-compose-mdb.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import { createClient } from "@supabase/supabase-js";
-import { GoogleGenAI, SchemaType } from "@google/generative-ai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!);
-const genAI = new GoogleGenAI(process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY);
-
-type Body = {
+// Shape of the request your page sends
+type ReqBody = {
   prompt: string;
-  instruments: { name: string; notes: string[] }[]; // Square/Triangle/Pulse + note ranges in your grid
-  userCtxText: string;      // describe last 1–4 bars from user grid as text
+  instruments: Array<{ name: string; notes: string[] }>;
   maxEvents?: number;
-  kStyle?: number;
-  kMotif?: number;
   stepQuant?: number;
+  maxPolyphony?: number;
 };
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
-  const {
-    prompt, instruments, userCtxText,
-    maxEvents = 24, kStyle = 6, kMotif = 12, stepQuant = 16
-  } = req.body as Body;
+// Shape of the response index.tsx expects
+type EventItem = {
+  relStep: number;          // relative step offset (>= 0)
+  instrumentIdx: number;    // which instrument
+  note: string;             // note name, e.g. "C4"
+  length?: number;          // optional step length
+};
 
-  if (!prompt || !instruments?.length) return res.status(400).json({ error: "prompt + instruments required" });
+type ResBody = { events: EventItem[] };
 
-  const embedModel = "text-embedding-004";
-  const embed = async (text: string) => {
-    const r = await genAI.models.embedContent({ model: embedModel, content: { role: "user", parts: [{ text }] } });
-    return r.embedding.values;
-  };
+// If you already have a Python/RAG service you proxy to, swap this function
+// to do a `fetch(process.env.RAG_SERVER_URL!, { ... })` and return its JSON.
+async function composeWithRAGLLM(
+  prompt: string,
+  instruments: Array<{ name: string; notes: string[] }>,
+  maxEvents: number,
+  stepQuant: number,
+  maxPolyphony: number
+): Promise<EventItem[]> {
+  // Minimal LLM wiring (keep existing env var name)
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) throw new Error("Missing GEMINI_API_KEY/GOOGLE_API_KEY");
 
-  // --- Retrieve style + motifs
-  const [qVec, ctxVec] = await Promise.all([embed(prompt), embed(userCtxText || prompt)]);
-
-  // style
-  const { data: styleHits, error: e1 } = await supabase
-    .rpc("match_mdb_tracks", { query_vec: qVec, match_count: kStyle }); // see SQL RPC below
-  if (e1) console.error(e1);
-
-  // motifs
-  const { data: motifHits, error: e2 } = await supabase
-    .rpc("match_mdb_motifs", { query_vec: ctxVec, match_count: kMotif });
-  if (e2) console.error(e2);
-
-  const styleCards = (styleHits || []).map((r: any) => r.style_text).slice(0, kStyle);
-  const ctxMotifs  = (motifHits  || []).map((r: any) => r.note_list).slice(0, kMotif);
-
-  // --- Build system + schema for multi-instrument events
-  const sys = [
-    `You are an NES chiptune composer for a 64-step (16th-note) grid.`,
-    `Use ALL instruments. At most one note per instrument per step. Total events ≤ ${maxEvents}.`,
-    ...instruments.map(i => `- ${i.name} allowed notes: ${i.notes.join(", ")}`),
-    `User context (recent fragment to continue): ${userCtxText || "(none)"}`,
-    `Style references (vibes only, do not copy):\n${styleCards.map((s,i)=>`${i+1}. ${s}`).join("\n")}`,
-    `Motif references (vibes only, do not copy):\n${ctxMotifs.join(" | ")}`,
-    `Avoid reproducing any exact 8+ note run from references; keep novelty.`,
-    `Return STRICT JSON.`,
-  ].join("\n");
-
-  const schema = {
-    type: SchemaType.OBJECT,
-    properties: {
-      events: {
-        type: SchemaType.ARRAY,
-        items: {
-          type: SchemaType.OBJECT,
-          properties: {
-            relStep: { type: SchemaType.INTEGER },       // 0-based
-            instrument: { type: SchemaType.STRING, enum: instruments.map(i=>i.name) },
-            note: { type: SchemaType.STRING },
-            length: { type: SchemaType.INTEGER },        // optional sustain in steps
-          },
-          required: ["relStep", "instrument", "note"]
-        }
-      }
-    },
-    required: ["events"]
-  } as const;
-
+  const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-  const response = await model.generateContent({
-    contents: [{ role: "user", parts: [{ text: sys + `\n\nUser prompt: """${prompt}"""` }] }],
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: schema as any,
-      temperature: 0.9,
-      topP: 0.9,
+  // Few-shot format: we ask for strict JSON with our fields
+  const sys =
+    "You are a chiptune arranger. Return ONLY JSON with an 'events' array. " +
+    "Each event has relStep (non-negative integer), instrumentIdx (int), note (string like C4), and optional length (steps). " +
+    `Limit to <= ${maxEvents} events, step quant ${stepQuant}, max polyphony ${maxPolyphony}. ` +
+    "Only use notes provided per instrument. Never exceed array bounds.";
+
+  const instrumentCatalog = instruments
+    .map((inst, idx) => {
+      const notesJoined = inst.notes.map((n: string, i: number) => `${i}:${n}`).join(", ");
+      return `#${idx} ${inst.name}: [${notesJoined}]`;
+    })
+    .join("\n");
+
+  const content = [
+    { role: "user", parts: [{ text: sys }] },
+    {
+      role: "user",
+      parts: [
+        {
+          text:
+            `PROMPT: ${prompt}\n\nINSTRUMENTS (index:name:notes[idx]):\n` +
+            instrumentCatalog +
+            `\n\nReturn strictly:\n{"events":[{"relStep":0,"instrumentIdx":0,"note":"C4","length":2}, ...]}\n`,
+        },
+      ],
+    },
+  ];
+
+  const resp = await model.generateContent({ contents: content as any });
+  const txt = resp.response.text().trim();
+
+  // Try parse strict JSON (strip backticks or fencing if present)
+  const jsonText = txt.replace(/^```json\s*|\s*```$/g, "");
+  let parsed: ResBody | null = null;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    // As a last resort, try to find the first {...} block
+    const m = txt.match(/\{[\s\S]*\}/);
+    if (m) parsed = JSON.parse(m[0]);
+  }
+  if (!parsed || !Array.isArray(parsed.events)) {
+    throw new Error("LLM did not return valid events JSON");
+  }
+
+  // Coerce types & clamp
+  const events: EventItem[] = parsed.events.map((e) => ({
+    relStep: Math.max(0, Number.isFinite(e.relStep as number) ? (e.relStep as number) : 0),
+    instrumentIdx: Math.max(0, Number.isFinite(e.instrumentIdx as number) ? (e.instrumentIdx as number) : 0),
+    note: String(e.note || "C4"),
+    length: Number.isFinite(e.length as number) ? (e.length as number) : undefined,
+  }));
+  return events.slice(0, maxEvents);
+}
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<ResBody | { error: string }>
+) {
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
+    return res.status(405).json({ error: "Method Not Allowed" });
+  }
+
+  try {
+    const {
+      prompt,
+      instruments,
+      maxEvents = 24,
+      stepQuant = 16,
+      maxPolyphony = 3,
+    } = (req.body || {}) as ReqBody;
+
+    if (!prompt || !Array.isArray(instruments)) {
+      return res.status(400).json({ error: "Bad request: prompt + instruments required" });
     }
-  });
 
-  let data: any;
-  try { data = JSON.parse(response.text()); }
-  catch { return res.status(502).json({ error: "Model JSON parse failed", raw: response.text() }); }
-
-  // Normalize + map instrument -> index
-  const nameToIdx = Object.fromEntries(instruments.map((i,ix)=>[i.name.toLowerCase(), ix]));
-  const out = (data.events || [])
-    .filter((e: any) => Number.isInteger(e?.relStep) && typeof e?.instrument==="string" && typeof e?.note==="string")
-    .slice(0, maxEvents)
-    .map((e:any)=>({ relStep: e.relStep, instrumentIdx: nameToIdx[e.instrument.toLowerCase()], note: e.note, length: e.length||1 }))
-    .filter((e:any)=> e.instrumentIdx != null);
-
-  return res.status(200).json({ events: out });
+    const events = await composeWithRAGLLM(
+      prompt,
+      instruments,
+      maxEvents,
+      stepQuant,
+      maxPolyphony
+    );
+    return res.status(200).json({ events });
+  } catch (err: any) {
+    console.error("gemini-compose-mdb error:", err?.stack || err);
+    return res.status(500).json({ error: "Server error" });
+  }
 }

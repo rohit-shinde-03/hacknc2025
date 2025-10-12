@@ -1,8 +1,0 @@
-{
-  "dependencies": {
-    "@google/genai": "^1.24.0",
-    "@tonejs/midi": "^2.0.28",
-    "dotenv": "^17.2.3",
-    "pg": "^8.16.3"
-  }
-}
