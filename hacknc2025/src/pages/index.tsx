@@ -6,7 +6,8 @@ import SaveModal from "@/components/SaveModal";
 import { useToneSequencer } from "@/hooks/useToneSequencer";
 import { useProjectManager } from "@/hooks/useProjectManager";
 
-const STEPS = 64; // 64 time steps (16 groups of 4)
+const MIN_STEPS = 16; // Minimum 4 groups of 4
+const MAX_STEPS = 128; // Maximum 32 groups of 4
 
 // Instrument configuration: each instrument has multiple pitch rows
 const INSTRUMENTS = [
@@ -43,11 +44,13 @@ const INSTRUMENTS = [
 ];
 
 export default function Home() {
+  const [steps, setSteps] = useState(64); // Start with 16 groups of 4
+
   // Initialize 3D grid: [instrumentIndex][pitchIndex][stepIndex]
   const [grid, setGrid] = useState<boolean[][][]>(() =>
     INSTRUMENTS.map(instrument =>
       Array.from({ length: instrument.pitchCount }, () =>
-        Array(STEPS).fill(false)
+        Array(steps).fill(false)
       )
     )
   );
@@ -63,7 +66,7 @@ export default function Home() {
     playSound,
     handlePlay,
     handleClear,
-  } = useToneSequencer(INSTRUMENTS, grid, STEPS, bpm);
+  } = useToneSequencer(INSTRUMENTS, grid, steps, bpm);
 
   const {
     showSaveModal,
@@ -105,12 +108,12 @@ export default function Home() {
       setGrid(
         INSTRUMENTS.map(instrument =>
           Array.from({ length: instrument.pitchCount }, () =>
-            Array(STEPS).fill(false)
+            Array(steps).fill(false)
           )
         )
       );
     }
-  }, [handleClear]);
+  }, [handleClear, steps]);
 
   const handleBpmChange = useCallback((value: string) => {
     const numericValue = value.replace(/\D/g, "");
@@ -131,6 +134,38 @@ export default function Home() {
     }
   }, [bpmInput]);
 
+  const addSegment = useCallback(() => {
+    if (steps >= MAX_STEPS) return;
+    
+    const newSteps = steps + 4;
+    setSteps(newSteps);
+    
+    // Extend the grid with 4 new empty columns
+    setGrid(prevGrid =>
+      prevGrid.map(instrument =>
+        instrument.map(pitchRow =>
+          [...pitchRow, false, false, false, false]
+        )
+      )
+    );
+  }, [steps]);
+
+  const removeSegment = useCallback(() => {
+    if (steps <= MIN_STEPS) return;
+    
+    const newSteps = steps - 4;
+    setSteps(newSteps);
+    
+    // Remove the last 4 columns from the grid
+    setGrid(prevGrid =>
+      prevGrid.map(instrument =>
+        instrument.map(pitchRow =>
+          pitchRow.slice(0, newSteps)
+        )
+      )
+    );
+  }, [steps]);
+
   return (
     <div className="min-h-screen bg-black">
       <Header />
@@ -141,19 +176,22 @@ export default function Home() {
           isLoading={isLoading}
           isSaving={isSaving}
           bpmInput={bpmInput}
+          steps={steps}
           onPlay={handlePlay}
           onClear={handleClearGrid}
           onSave={handleSave}
           onSaveAs={handleSaveAs}
           onBpmChange={handleBpmChange}
           onBpmBlur={handleBpmBlur}
+          onAddSegment={addSegment}
+          onRemoveSegment={removeSegment}
         />
 
         <SequencerGrid
           instruments={INSTRUMENTS}
           grid={grid}
           currentStep={currentStep}
-          steps={STEPS}
+          steps={steps}
           onToggle={handleToggle}
         />
       </div>
