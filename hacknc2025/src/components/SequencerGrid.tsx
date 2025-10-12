@@ -12,17 +12,27 @@ interface Instrument {
 interface SequencerGridProps {
   instruments: Instrument[];
   grid: boolean[][][];
+  durationGrid: number[][][];
   currentStep: number;
   steps: number;
-  onToggle: (instrumentIndex: number, pitchIndex: number, stepIndex: number) => void;
+  volumes: number[];
+  onNoteCreate: (instrumentIndex: number, pitchIndex: number, startStep: number, endStep: number) => void;
+  onNoteDelete: (instrumentIndex: number, pitchIndex: number, stepIndex: number) => void;
+  onVolumeChange: (instrumentIndex: number, newVolume: number) => void;
+  isPlaying: boolean;
 }
 
 export default function SequencerGrid({
   instruments,
   grid,
+  durationGrid,
   currentStep,
   steps,
-  onToggle,
+  volumes,
+  onNoteCreate,
+  onNoteDelete,
+  onVolumeChange,
+  isPlaying,
 }: SequencerGridProps) {
   return (
     <div className="w-full max-w-6xl overflow-x-auto overflow-y-visible border-4 border-cyan-400 shadow-[8px_8px_0px_0px_rgba(0,139,139,1)] bg-gray-900">
@@ -30,12 +40,18 @@ export default function SequencerGrid({
         {instruments.map((instrument, instrumentIndex) => (
           <InstrumentSection
             key={instrumentIndex}
+            instrumentIndex={instrumentIndex}
             instrumentName={instrument.name}
             notes={instrument.notes}
             grid={grid[instrumentIndex]}
+            durationGrid={durationGrid[instrumentIndex]}
             currentStep={currentStep}
             steps={steps}
-            onToggle={(pitchIndex, stepIndex) => onToggle(instrumentIndex, pitchIndex, stepIndex)}
+            volume={volumes[instrumentIndex]}
+            onNoteCreate={onNoteCreate}
+            onNoteDelete={onNoteDelete}
+            onVolumeChange={onVolumeChange}
+            isPlaying={isPlaying}
           />
         ))}
       </div>
