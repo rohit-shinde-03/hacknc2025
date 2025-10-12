@@ -428,12 +428,6 @@ export default function Home() {
     <div className="min-h-screen bg-black">
       <Header />
       <div className="flex flex-col items-center justify-center p-8 gap-6">
-        {/* Project Name Display */}
-        <div className="text-2xl font-bold text-slate-800">
-          {projectName}
-          {currentProjectId && <span className="ml-2 text-sm text-slate-500">(Saved)</span>}
-        </div>
-
         {/* Control Buttons */}
         <div className="flex items-center gap-4 flex-wrap justify-center">
           <button
@@ -459,17 +453,17 @@ export default function Home() {
           <button
             onClick={handleSave}
             disabled={isSaving || isPlaying}
-            className="px-8 py-3 text-lg font-semibold rounded-lg bg-blue-500 hover:bg-blue-600 text-white transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-8 py-3 text-sm font-bold bg-cyan-400 hover:bg-cyan-500 text-black border-4 border-cyan-600 shadow-[4px_4px_0px_0px_rgba(0,139,139,1)] transition-all focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed active:translate-x-1 active:translate-y-1 active:shadow-none"
           >
-            {isSaving ? 'Saving...' : 'Save'}
+            {isSaving ? 'SAVING...' : 'SAVE'}
           </button>
 
           <button
             onClick={handleSaveAs}
             disabled={isSaving || isPlaying}
-            className="px-6 py-3 text-lg font-semibold rounded-lg bg-purple-500 hover:bg-purple-600 text-white transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-400 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-8 py-3 text-sm font-bold bg-yellow-400 hover:bg-yellow-500 text-black border-4 border-yellow-600 shadow-[4px_4px_0px_0px_rgba(139,69,0,1)] transition-all focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed active:translate-x-1 active:translate-y-1 active:shadow-none"
           >
-            Save As
+            SAVE AS
           </button>
 
           {/* BPM Control */}
@@ -485,7 +479,7 @@ export default function Home() {
               onChange={(e) => handleBpmChange(e.target.value)}
               onBlur={handleBpmBlur}
               disabled={isPlaying}
-              className="w-16 px-2 py-1 text-center text-black font-bold bg-white border-2 border-black focus:outline-none focus:ring-2 focus:ring-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-20 px-2 py-1 text-center text-black font-bold bg-white border-2 border-black focus:outline-none focus:ring-2 focus:ring-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed"
               placeholder="60"
             />
           </div>
