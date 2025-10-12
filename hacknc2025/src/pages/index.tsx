@@ -494,38 +494,40 @@ export default function Home() {
         <div className="w-full max-w-6xl overflow-x-auto overflow-y-visible border-4 border-cyan-400 shadow-[8px_8px_0px_0px_rgba(0,139,139,1)] bg-gray-900">
           <div className="space-y-4 p-4 min-w-max">
             {INSTRUMENTS.map((instrument, instrumentIndex) => (
-              <div key={instrumentIndex} className="flex items-start gap-2">
-                {/* Instrument Label - Sticky */}
-                <div className="w-20 px-2 py-1 text-[8px] font-bold text-black bg-cyan-400 border-2 border-cyan-600 text-center sticky left-4 z-30 shadow-md">
+              <div key={instrumentIndex} className="flex flex-col gap-2">
+                {/* Instrument Label - Sticky at top */}
+                <div className="px-3 py-1 text-[10px] font-bold text-black bg-cyan-400 border-2 border-cyan-600 text-center sticky left-4 z-30 shadow-md w-fit">
                   {instrument.name.toUpperCase()}
                 </div>
 
-                {/* Note Labels (outside the grid) - Sticky */}
-                <div className="flex flex-col sticky left-24 z-30 bg-gray-900 shadow-sm overflow-hidden">
-                  {/* Spacer for column numbers */}
-                  <div className="h-4 mb-1"></div>
-                  
-                  {/* Note labels */}
-                  <div className="flex flex-col-reverse">
-                    {grid[instrumentIndex].map((_, pitchIndex) => {
-                      // Get the note name for this pitch
-                      // pitchIndex 0 = lowest note, renders at bottom due to flex-col-reverse
-                      const noteName = instrument.notes[pitchIndex];
-                      const isSharp = noteName.includes('#');
-                      
-                      return (
-                        <div key={pitchIndex} className={`h-3 px-1 text-[6px] font-bold flex items-center justify-end w-8 ${
-                          isSharp ? 'text-cyan-300' : 'text-green-400'
-                        }`}>
-                          {noteName}
-                        </div>
-                      );
-                    })}
+                {/* Grid and labels container */}
+                <div className="flex items-start gap-2">
+                  {/* Note Labels (outside the grid) - Sticky */}
+                  <div className="flex flex-col sticky left-4 z-30 bg-gray-900 shadow-sm overflow-hidden pl-0">
+                    {/* Spacer for column numbers */}
+                    <div className="h-4 mb-1"></div>
+                    
+                    {/* Note labels */}
+                    <div className="flex flex-col-reverse">
+                      {grid[instrumentIndex].map((_, pitchIndex) => {
+                        // Get the note name for this pitch
+                        // pitchIndex 0 = lowest note, renders at bottom due to flex-col-reverse
+                        const noteName = instrument.notes[pitchIndex];
+                        const isSharp = noteName.includes('#');
+                        
+                        return (
+                          <div key={pitchIndex} className={`h-6 pr-1 text-[8px] font-bold flex items-center justify-end w-10 ${
+                            isSharp ? 'text-cyan-300' : 'text-green-400'
+                          }`}>
+                            {noteName}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
 
-                {/* Piano Roll Grid Container */}
-                <div className="flex flex-col">
+                  {/* Piano Roll Grid Container */}
+                  <div className="flex flex-col">
                   {/* Column Numbers */}
                   <div className="flex mb-1 h-4">
                     {Array.from({ length: STEPS }).map((_, stepIndex) => {
@@ -534,7 +536,7 @@ export default function Home() {
                       return (
                         <div
                           key={stepIndex}
-                          className="w-6 text-[8px] text-center font-bold text-yellow-400 flex items-center justify-center"
+                          className="w-10 text-[10px] text-center font-bold text-yellow-400 flex items-center justify-center"
                         >
                           {isGroupStart ? groupNumber : ''}
                         </div>
@@ -564,18 +566,18 @@ export default function Home() {
                         <button
                           key={stepIndex}
                           onClick={() => handleToggle(instrumentIndex, pitchIndex, stepIndex)}
-                          className={`w-6 h-3 transition-all relative border hover:ring-2 hover:ring-cyan-400 hover:ring-inset ${
-                            needsHorizontalBorder ? 'border-b border-b-gray-700' : ''
+                          className={`w-10 h-6 transition-all relative border border-gray-400 hover:ring-2 hover:ring-cyan-400 hover:ring-inset ${
+                            needsHorizontalBorder ? 'border-b border-b-gray-400' : ''
                           } ${
-                            isGroupStart ? 'border-l-2 border-l-cyan-400 z-10' : 'border-l border-l-gray-700'
+                            isGroupStart ? 'border-l-2 border-l-cyan-400 z-10' : 'border-l border-l-gray-400'
                           } ${
                             isCurrentColumn ? 'ring-2 ring-yellow-300 ring-inset !z-20 animate-pulse' : ''
                           } ${
                             isActive 
-                              ? 'bg-green-400 hover:bg-green-500 border-green-600' 
+                              ? 'bg-green-400 hover:bg-green-500' 
                               : isSharpRow 
-                                ? 'bg-gray-700 hover:bg-gray-600 border-gray-800' 
-                                : 'bg-gray-800 hover:bg-gray-700 border-gray-900'
+                                ? 'bg-gray-700 hover:bg-gray-600' 
+                                : 'bg-gray-800 hover:bg-gray-700'
                           }`}
                           aria-pressed={isActive}
                         />
@@ -585,9 +587,10 @@ export default function Home() {
                   );
                 })}
               </div>
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
           </div>
         </div>
 
