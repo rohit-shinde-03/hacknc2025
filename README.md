@@ -169,7 +169,7 @@ Quick A/B Demo (30s)
 
 **POST** http://localhost:3000/api/gemini-compose-mdb
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   {    "series": "Mega Man",    "scene": "boss",    "mood": "energetic",    "instruments": [{"name":"Square"},{"name":"Triangle"},{"name":"Pulse"}],    "steps": 64,    "tempoBpm": 120,    "barSteps": 16,    "beatsPerBar": 4,    "fillBars": 3,    "fillUniform": true  }   `
+`   {    "series": "Mega Man",    "scene": "boss",    "mood": "energetic",    "instruments": [{"name":"Square"},{"name":"Triangle"},{"name":"Pulse"}],    "steps": 64,    "tempoBpm": 120,    "barSteps": 16,    "beatsPerBar": 4,    "fillBars": 3,    "fillUniform": true  }   `
 
 **Expect:** retrieved contains Mega Man cues; events feel on-brand at 120 BPM.
 
@@ -177,7 +177,7 @@ Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQL
 
 **POST** http://localhost:3000/api/gemini-compose-mdb
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   {    "series": "Mega Man",    "scene": "boss",    "mood": "energetic",    "useRag": false,    "instruments": [{"name":"Square"},{"name":"Triangle"},{"name":"Pulse"}],    "steps": 64,    "tempoBpm": 120,    "barSteps": 16,    "beatsPerBar": 4,    "fillBars": 3  }   `
+`   {    "series": "Mega Man",    "scene": "boss",    "mood": "energetic",    "useRag": false,    "instruments": [{"name":"Square"},{"name":"Triangle"},{"name":"Pulse"}],    "steps": 64,    "tempoBpm": 120,    "barSteps": 16,    "beatsPerBar": 4,    "fillBars": 3  }   `
 
 **Expect:** retrieved: \[\]; music tends to be more generic vs. RAG-on output.
 
@@ -185,7 +185,7 @@ Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQL
 
 Seed with your current grid (example has **C5@0 len16** and **C#5@32 len16**):
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   {    "series": "Mega Man",    "scene": "boss",    "mood": "energetic",    "instruments": [{"name":"Square"},{"name":"Triangle"},{"name":"Pulse"}],    "steps": 64,    "tempoBpm": 120,    "barSteps": 16,    "beatsPerBar": 4,    "fillBars": 3,    "fillUniform": true,    "seed": {      "events": [        { "step": 0,  "instrumentIdx": 0, "note": "C5",  "length": 16 },        { "step": 32, "instrumentIdx": 0, "note": "C#5", "length": 16 }      ]    }  }   `
+`   {    "series": "Mega Man",    "scene": "boss",    "mood": "energetic",    "instruments": [{"name":"Square"},{"name":"Triangle"},{"name":"Pulse"}],    "steps": 64,    "tempoBpm": 120,    "barSteps": 16,    "beatsPerBar": 4,    "fillBars": 3,    "fillUniform": true,    "seed": {      "events": [        { "step": 0,  "instrumentIdx": 0, "note": "C5",  "length": 16 },        { "step": 32, "instrumentIdx": 0, "note": "C#5", "length": 16 }      ]    }  }   `
 
 **Expect:** Response echoes startStep: 48. Returned events\[\].relStep are **relative to 0** and will be placed at startStep + relStep → new notes begin exactly at **48** with **no gap** and fill **3 bars**.
 
