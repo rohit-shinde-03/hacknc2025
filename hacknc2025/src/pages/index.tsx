@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/router";
 
 import Header from "@/components/Header";
@@ -52,7 +52,6 @@ const INSTRUMENTS = [
   },
 ];
 
-
 // --------------------
 // Note helpers
 // --------------------
@@ -77,6 +76,11 @@ function nearestNoteInInstrument(targetMidi: number, notes: string[]) {
   }
   return { index: bestIdx, name: notes[bestIdx] };
 }
+
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+const normMod = (n: number, m: number) => ((n % m) + m) % m;
+
+/** -------------------- NEW: collect ALL notes + correct last end step -------------------- **/
 // collect existing notes as absolute steps (0..steps-1)
 function collectSeed(
   grid: boolean[][][],
@@ -91,22 +95,21 @@ function collectSeed(
     for (let p = 0; p < grid[i].length; p++) {
       for (let s = 0; s < steps; s++) {
         if (grid[i][p][s]) {
+          const length = Math.max(1, durationGrid[i][p][s] || 1);
           events.push({
             step: s,
             instrumentIdx: i,
             note: instruments[i].notes[p],
-            length: Math.max(1, durationGrid[i][p][s] || 1),
+            length,
           });
-          lastFilled = Math.max(lastFilled, s);
+          // NEW: track the **end** of the note, not just the head
+          lastFilled = Math.max(lastFilled, s + length - 1);
         }
       }
     }
   }
   return { events, lastFilled };
 }
-
-const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-const normMod = (n: number, m: number) => ((n % m) + m) % m;
 
 // --------------------
 // Page
@@ -308,7 +311,6 @@ export default function Home() {
     setGrid(prev => prev.map(inst => inst.map(row => row.slice(0, newSteps))));
     setDurationGrid(prev => prev.map(inst => inst.map(row => row.slice(0, newSteps))));
   }, [steps]);
-  const mod = (n: number, m: number) => ((n % m) + m) % m;
 
   const toPitchIndex = useCallback((note: string, instrumentIdx: number) => {
     const allowed = INSTRUMENTS[instrumentIdx].notes;
@@ -316,119 +318,73 @@ export default function Home() {
     return nearestNoteInInstrument(midi, allowed).index;
   }, []);
 
-  const applyRagEvents = useCallback((
-    events: Array<{ relStep: number; instrumentIdx: number; note: string; length: number }>
-  ) => {
-    // Collapse to 1 event per (instrument, step). Prefer the longer sustain if there are collisions.
-    const byKey = new Map<string, { i: number; s: number; p: number; l: number }>();
+  // -------------------- NEW: main compose handler (true continuation + uniform window) --------------------
+  const composeWithRag = useCallback(async () => {
+    setIsComposing(true);
+    try {
+      // 1) Gather ALL notes as seed and compute continuation point (after the last note's END)
+      const seed = collectSeed(grid, durationGrid, steps, INSTRUMENTS); // NEW
+      const computedStart = seed.lastFilled >= 0 ? seed.lastFilled + 1 : 0; // NEW
 
-    for (const ev of events) {
-      const i = Math.max(0, Math.min(INSTRUMENTS.length - 1, ev.instrumentIdx | 0));
-      const s = mod(ev.relStep | 0, steps);
-      const p = toPitchIndex(ev.note, i);
-      const l = Math.max(1, Math.min(steps, Math.floor(ev.length || 1)));
-      const key = `${i}:${s}`;
-      const cur = byKey.get(key);
-      if (!cur || l > cur.l) byKey.set(key, { i, s, p, l });
+      // 2) Ask server to fill a clear window (3 bars) and keep it uniform
+      const barSteps = 16;       // NEW: steps per bar
+      const fillBars = 3;        // NEW: fill exactly 3 bars (change as you like)
+
+      const r = await fetch("/api/gemini-compose-mdb", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          prompt: gemPrompt || "mega man boss energetic",          // plain English, no BPM
+          instruments: INSTRUMENTS.map((ins) => ({ name: ins.name })), // API only needs names for the map
+          steps,
+          startStep: computedStart, // NEW: explicit start (server will also recompute from seed)
+          barSteps,                 // NEW
+          fillBars,                 // NEW
+          fillUniform: true,        // NEW: tile motif if the model under-fills
+          seed: { events: seed.events }, // NEW: send ALL user notes (server accepts 'step' or 'relStep')
+          maxEvents: 160,                 // give room for a few bars of content
+        }),
+      });
+
+      const txt = await r.text();
+      if (!r.ok) throw new Error(`${r.status}: ${txt}`);
+
+      const data = JSON.parse(txt) as {
+        events: Array<{ relStep: number; instrumentIdx: number; note: string; length?: number }>;
+        startStep?: number;  // NEW: server echoes the start it used
+        endStep?: number;    // NEW: end of the enforced window
+      };
+
+      const serverStart = (data.startStep ?? computedStart) | 0; // NEW
+
+      // 3) Place returned notes using the **server's** start offset (no overlaps with user heads)
+      setGrid(prev => {
+        const g = prev.map(inst => inst.map(row => row.slice()));
+        setDurationGrid(prevDur => {
+          const d = prevDur.map(inst => inst.map(row => row.slice()));
+
+          for (const ev of data.events) {
+            const i = clamp(ev.instrumentIdx | 0, 0, INSTRUMENTS.length - 1);
+            const absStep = normMod(serverStart + clamp(ev.relStep | 0, 0, steps - 1), steps); // NEW
+            const pitchIdx = toPitchIndex(ev.note, i);
+            if (g[i][pitchIdx][absStep]) continue; // don't overwrite existing heads
+            g[i][pitchIdx][absStep] = true;
+            d[i][pitchIdx][absStep] = Math.max(1, (ev.length ?? 1) | 0);
+          }
+
+          return d;
+        });
+        return g;
+      });
+    } catch (e: any) {
+      console.error("composeWithRag error:", e);
+      alert("RAG autocomplete failed. See console.");
+    } finally {
+      setIsComposing(false);
     }
+  }, [gemPrompt, grid, durationGrid, steps, toPitchIndex]);
 
-    // Write grid (clean column, place head, keep sustain row clean)
-    setGrid(prev => {
-      const next = prev.map(inst => inst.map(row => row.slice()));
-      for (const { i, s, p, l } of byKey.values()) {
-        // clear the entire column for this instrument at step s (monophonic at that moment)
-        for (let rp = 0; rp < next[i].length; rp++) next[i][rp][s] = false;
-
-        // place the head
-        next[i][p][s] = true;
-
-        // ensure sustain span doesn't leave extra heads later in the row
-        for (let k = 1; k < l; k++) {
-          const ss = mod(s + k, steps);
-          next[i][p][ss] = false;
-        }
-      }
-      return next;
-    });
-
-    // Write durations (head cell only)
-    setDurationGrid(prev => {
-      const next = prev.map(inst => inst.map(row => row.slice()));
-      for (const { i, s, p, l } of byKey.values()) {
-        next[i][p][s] = l;
-      }
-      return next;
-    });
-  }, [steps, toPitchIndex]);
-
-    // --- RAG compose (uses your /api/gemini-compose-mdb) ---
-    const composeWithRag = useCallback(async () => {
-      setIsComposing(true);
-      try {
-        // 1) seed from what's already on the grid
-        const seed = collectSeed(grid, durationGrid, steps, INSTRUMENTS);
-        const startStep = seed.lastFilled >= 0 ? (seed.lastFilled + 1) % steps : 0;
-
-        const r = await fetch("/api/gemini-compose-mdb", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            prompt: gemPrompt || "Autocomplete the chiptune loop that’s already started.",
-            instruments: INSTRUMENTS.map((ins, idx) => ({ index: idx, name: ins.name, notes: ins.notes })),
-            steps,
-            startStep,                 // tell the model where to continue
-            seed: { events: seed.events }, // give existing content as context
-            maxEvents: 48,
-            stepQuant: 16,
-            maxPolyphony: 3
-          }),
-        });
-
-        const txt = await r.text();
-        if (!r.ok) throw new Error(`${r.status}: ${txt}`);
-
-        const data = JSON.parse(txt) as {
-          events: Array<{ relStep: number; instrumentIdx: number; note: string; length: number }>;
-        };
-        if (!Array.isArray(data.events)) throw new Error("No events in response");
-
-        // 2) apply returned events AFTER startStep and never overwrite existing notes
-        setGrid(prev => {
-          const g = prev.map(inst => inst.map(row => row.slice()));
-          setDurationGrid(prevDur => {
-            const d = prevDur.map(inst => inst.map(row => row.slice()));
-
-            for (const ev of data.events) {
-              const i = clamp(ev.instrumentIdx | 0, 0, INSTRUMENTS.length - 1);
-              const absStep = normMod(startStep + clamp(ev.relStep | 0, 0, steps - 1), steps);
-
-              // snap note to instrument’s nearest row
-              const { index: p } = nearestNoteInInstrument(noteToMidiSafe(ev.note), INSTRUMENTS[i].notes);
-
-              // don’t overwrite existing note heads
-              if (g[i][p][absStep]) continue;
-
-              g[i][p][absStep] = true;
-              d[i][p][absStep] = Math.max(1, (ev.length ?? 1) | 0);
-            }
-
-            setDurationGrid(d);
-            return d;
-          });
-          return g;
-        });
-      } catch (e) {
-        console.error("composeWithRag error:", e);
-        alert("RAG autocomplete failed. See console.");
-      } finally {
-        setIsComposing(false);
-      }
-    }, [gemPrompt, grid, durationGrid, steps]);
-
-
-  // --------------------
-  // RAG compose: calls /api/gemini-compose-mdb and writes directly into grid
-  // --------------------
+  // (Optional) keep your older "compose from scratch" helper if you still use it elsewhere
   const ragCompose = useCallback(async () => {
     try {
       const instrumentsPayload = INSTRUMENTS.map(i => ({ name: i.name, notes: i.notes }));
@@ -440,8 +396,6 @@ export default function Home() {
           prompt: gemPrompt || "Compose a catchy 8-bit overworld theme that uses all three waves.",
           instruments: instrumentsPayload,
           maxEvents: 24,
-          stepQuant: 16,
-          maxPolyphony: 3,
         }),
       });
 
@@ -452,12 +406,10 @@ export default function Home() {
         return;
       }
 
-      const { events } = JSON.parse(txt) as {
+      const { events, startStep: serverStart = 0 } = JSON.parse(txt) as {
         events: Array<{ relStep: number; instrumentIdx: number; note: string; length?: number }>;
+        startStep?: number;
       };
-
-      // Simple insertion starting at step 0 (no optional preview, no second window)
-      const startStep = 0;
 
       setGrid(prev => {
         const g = prev.map(inst => inst.map(row => row.slice()));
@@ -465,26 +417,22 @@ export default function Home() {
           const d = prevDur.map(inst => inst.map(row => row.slice()));
 
           for (const ev of events) {
-            const instIdx = Math.max(0, Math.min(INSTRUMENTS.length - 1, ev.instrumentIdx | 0));
-            const absStep = Math.min(steps - 1, Math.max(0, startStep + Math.max(0, ev.relStep | 0)));
-            const { index: pitchIdx } = nearestNoteInInstrument(noteToMidiSafe(ev.note), INSTRUMENTS[instIdx].notes);
-
-            // place head and duration
+            const instIdx = clamp(ev.instrumentIdx | 0, 0, INSTRUMENTS.length - 1);
+            const absStep = normMod(serverStart + clamp(ev.relStep | 0, 0, steps - 1), steps); // NEW
+            const pitchIdx = toPitchIndex(ev.note, instIdx);
             g[instIdx][pitchIdx][absStep] = true;
             d[instIdx][pitchIdx][absStep] = Math.max(1, (ev.length ?? 1) | 0);
           }
 
-          setDurationGrid(d);
-          return d; // TS satisfied; value ignored by React in setter form
+          return d;
         });
-
         return g;
       });
     } catch (err) {
       console.error("ragCompose error:", err);
       alert("Failed to compose. See console.");
     }
-  }, [gemPrompt, steps]);
+  }, [gemPrompt, steps, toPitchIndex]);
 
   // Loading screen for project fetch
   if (isLoadingProject) {
@@ -531,7 +479,7 @@ export default function Home() {
           onRemoveSegment={removeSegment}
         />
 
-        {/* AI Compose Section - Prominent MVP Feature */}
+        {/* AI Compose Section */}
         <div className="w-full max-w-4xl bg-gradient-to-r from-purple-900 to-pink-900 border-8 border-yellow-400 shadow-[8px_8px_0px_0px_rgba(255,215,0,1)] p-6 rounded-lg">
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-3 mb-2">
@@ -551,7 +499,7 @@ export default function Home() {
               <input
                 value={gemPrompt}
                 onChange={(e) => setGemPrompt(e.target.value)}
-                placeholder='Try: "upbeat overworld theme" or "spooky dungeon music"'
+                placeholder='Try: "mega man boss energetic" or "castlevania dark castle"'
                 className="flex-1 px-4 py-3 rounded-lg border-4 border-purple-600 bg-white text-black text-lg font-medium placeholder:text-gray-400 focus:outline-none focus:ring-4 focus:ring-yellow-400 disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={isComposing || isPlaying || isLoading}
               />
@@ -597,7 +545,6 @@ export default function Home() {
           onVolumeChange={handleVolumeChange}
           isPlaying={isPlaying}
         />
-
       </div>
 
       {/* Single SaveModal (no duplicates) */}

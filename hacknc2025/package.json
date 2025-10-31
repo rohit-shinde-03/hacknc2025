@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@google/genai": "^1.28.0",
     "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.75.0",
     "@tonejs/midi": "^2.0.28",
@@ -16,6 +17,7 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "supabase": "^2.48.3",
+    "tar": "^7.5.2",
     "tone": "^14.9.17"
   },
   "devDependencies": {
